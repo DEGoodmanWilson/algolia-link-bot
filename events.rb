@@ -75,9 +75,8 @@ class Events < Sinatra::Base
     links.each do |link|
       Unirest.get link do |response|
         page = Nokogiri::HTML(response.body)
-        page.css('script, link').each { |node| node.remove }
-
-        # TODO This needs a ton of polish. https://slackhq.com/adventures-of-a-world-famous-librarian-b03135fe40a0#.8hdodu9qz
+        # TODO This needs a some polish. Look at the results for https://slackhq.com/adventures-of-a-world-famous-librarian-b03135fe40a0#.8hdodu9qz
+        page.css('script, link, style').each { |node| node.remove }
         text = page.css('body').text
         title = page.css('title').text
 
