@@ -51,23 +51,60 @@ class Events < Sinatra::Base
     return @request_data['challenge']
   end
 
+
+  def index message
+    client = create_slack_client(@token['bot_access_token'])
+    client.chat_postMessage(channel: message['channel'], as_user:true, text: "(indexing)")
+  end
+
+  def query message
+    client = create_slack_client(@token['bot_access_token'])
+    client.chat_postMessage(channel: message['channel'], as_user:true, text: message['text'])
+  end
+
+
   # Now things get a bit more excited. Here is the endpoint for handling user messages!
   post '/events', :event => 'message' do
 
+    message = @request_data['event']
+
     # First of all, ignore all message originating from us
-    return if @request_data['event']['user'] == @token['bot_user_id']
+    return if message['user'] == @token['bot_user_id']
 
-    puts @request_data
-    puts @token
-
-    client = create_slack_client(@token['bot_access_token'])
-    client.chat_postMessage(channel: @request_data['event']['channel'], as_user:true, text: @request_data['event']['text'])
 
     # at this point, lots of things could happen.
     # This could be an ambient message that we should scan for links to index
     # Or this could be a message directed at _us_, in which case we should treat it as a search query.
     #  Note that we don't want to index either search queries, or anything _we_ post into the channel!
+
+
+    # The rule we're going to use is this:
+    # Index only messages a) not addressed to us and b) in a public channel
+
+    # Now, is this message addressed to us?
+    puts message
+    puts @token['bot_user_id']
+    is_addressed_to_us = !Regexp.new('<@'+@token['bot_user_id']+'>').match(message['text']).nil?
+    puts is_addressed_to_us
+
+    # Is it in a DM?
+    is_in_dm = message['channel'][0] == 'D'
+
+    # Is it in a public channel?
+    is_in_public_channel = message['channel'][0] == 'C'
+
+
+    if is_in_public_channel && !is_addressed_to_us
+      index message
+      status 200
+    end
+
+    if is_in_dm || is_addressed_to_us
+      query message
+      status 200
+    end
+
+    # else, do nothing. Ignore the message.
     status 200
   end
-
 end
