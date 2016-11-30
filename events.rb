@@ -119,7 +119,7 @@ class Events < Sinatra::Base
       # into something beautiful
       text = "I found some results for you."
       res['hits'].each do |hit|
-        text = text+"\n  • <#{hit['link']}|#{hit['title']}>"
+        text = text+"\n  • <#{hit['link']}|#{hit['title'].strip}>"
       end
 
       puts text
