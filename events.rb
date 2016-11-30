@@ -1,8 +1,10 @@
 require 'sinatra/base'
 require 'slack-ruby-client'
 require 'mongo'
+require 'algoliasearch'
 require_relative 'helpers'
 
+Algolia.init
 
 class Events < Sinatra::Base
 
@@ -53,8 +55,27 @@ class Events < Sinatra::Base
 
 
   def index message
+    index = Algolia::Index.new("link_#{@request_data['team_id']}")
+
+    # We begin the hunt for links. The good news is that Slack marks them out for us!
+    # Links look like:
+    # <http://google.com>
+    # or
+    # <http://google.com|Google!>
+    # We want to ignore the label
+    # This regex is a little janky, but it'll do for now
+    links = []
+    puts message['text']
+    message['text'].scan(/<(https?:\/\/.+?)>/).each do |m|
+      url = m[0].split('|')[0]
+      links.append url
+    end
+
     client = create_slack_client(@token['bot_access_token'])
-    client.chat_postMessage(channel: message['channel'], as_user:true, text: "(indexing)")
+    client.chat_postMessage(channel: message['channel'], as_user:true, text: links.to_s)
+
+
+    # index.add_objects([message])
   end
 
   def query message
@@ -82,10 +103,7 @@ class Events < Sinatra::Base
     # Index only messages a) not addressed to us and b) in a public channel
 
     # Now, is this message addressed to us?
-    puts message
-    puts @token['bot_user_id']
     is_addressed_to_us = !Regexp.new('<@'+@token['bot_user_id']+'>').match(message['text']).nil?
-    puts is_addressed_to_us
 
     # Is it in a DM?
     is_in_dm = message['channel'][0] == 'D'
