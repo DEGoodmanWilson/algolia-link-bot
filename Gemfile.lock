@@ -22,10 +22,13 @@ GEM
     i18n (0.7.0)
     json (1.8.3)
     mime-types (1.25.1)
+    mini_portile2 (2.1.0)
     minitest (5.9.1)
     mongo (2.4.0)
       bson (~> 4.2.0)
     multipart-post (2.0.0)
+    nokogiri (1.6.8.1)
+      mini_portile2 (~> 2.1.0)
     rack (1.6.5)
     rack-protection (1.5.3)
       rack
@@ -61,6 +64,7 @@ PLATFORMS
 DEPENDENCIES
   algoliasearch (~> 1.12.1)
   mongo (~> 2.2)
+  nokogiri (~> 1.6.8)
   sinatra (~> 1.4.7)
   slack-ruby-client (~> 0.7.7)
   unirest (~> 1.1.2)

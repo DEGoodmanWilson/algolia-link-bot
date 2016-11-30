@@ -3,6 +3,7 @@ require 'slack-ruby-client'
 require 'mongo'
 require 'algoliasearch'
 require 'unirest'
+require 'nokogiri'
 require_relative 'helpers'
 
 Algolia.init
@@ -56,7 +57,6 @@ class Events < Sinatra::Base
 
 
   def index message
-    index = Algolia::Index.new("link_#{@request_data['team_id']}")
 
     # We begin the hunt for links. The good news is that Slack marks them out for us!
     # Links look like:
@@ -66,15 +66,22 @@ class Events < Sinatra::Base
     # We want to ignore the label
     # This regex is a little janky, but it'll do for now
     links = []
-    puts message['text']
     message['text'].scan(/<(https?:\/\/.+?)>/).each do |m|
       url = m[0].split('|')[0]
       links.append url
     end
 
+    index = Algolia::Index.new(@request_data['team_id'])
     links.each do |link|
-      response = Unirest.get link do |response|
-        response.body # Parsed body
+      Unirest.get link do |response|
+        page = Nokogiri::HTML(response.body)
+        page.css('script, link').each { |node| node.remove }
+
+        # TODO This needs a ton of polish. https://slackhq.com/adventures-of-a-world-famous-librarian-b03135fe40a0#.8hdodu9qz
+        text = page.css('body').text
+        title = page.css('title').text
+
+        index.add_object({title: title, body: text}, link)
       end
     end
 
@@ -121,12 +128,12 @@ class Events < Sinatra::Base
 
     if is_in_public_channel && !is_addressed_to_us
       index message
-      status 200
+      halt 200
     end
 
     if is_in_dm || is_addressed_to_us
       query message
-      status 200
+      halt 200
     end
 
     # else, do nothing. Ignore the message.
