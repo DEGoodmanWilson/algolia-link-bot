@@ -92,7 +92,7 @@ class Auth < Sinatra::Base
       # Failure:
       # D'oh! Let the user know that something went wrong and output the error message returned by the Slack client.
       status 403
-      body "Auth failed! Reason: #{e.message}<br/>#{add_to_slack_button}"
+      body "Auth failed! Reason: #{e.message}<br/>"
     end
   end
 end
