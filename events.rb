@@ -2,6 +2,7 @@ require 'sinatra/base'
 require 'slack-ruby-client'
 require 'mongo'
 require 'algoliasearch'
+require 'unirest'
 require_relative 'helpers'
 
 Algolia.init
@@ -71,8 +72,14 @@ class Events < Sinatra::Base
       links.append url
     end
 
-    client = create_slack_client(@token['bot_access_token'])
-    client.chat_postMessage(channel: message['channel'], as_user:true, text: links.to_s)
+    links.each do |link|
+      response = Unirest.get link do |response|
+        response.body # Parsed body
+      end
+    end
+
+    # client = create_slack_client(@token['bot_access_token'])
+    # client.chat_postMessage(channel: message['channel'], as_user:true, text: links.to_s)
 
 
     # index.add_objects([message])
