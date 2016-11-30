@@ -80,20 +80,67 @@ class Events < Sinatra::Base
         text = page.css('body').text
         title = page.css('title').text
 
-        index.add_object({title: title, body: text}, link)
+        index.add_object({title: title, body: text, link: link}, link)
       end
     end
-
-    # client = create_slack_client(@token['bot_access_token'])
-    # client.chat_postMessage(channel: message['channel'], as_user:true, text: links.to_s)
-
-
-    # index.add_objects([message])
   end
 
   def query message
+    index = Algolia::Index.new(@request_data['team_id'])
     client = create_slack_client(@token['bot_access_token'])
-    client.chat_postMessage(channel: message['channel'], as_user:true, text: message['text'])
+
+    # Assume that the search query is following the @-mention
+    # TODO maybe not an awesome interface for this bot?
+    puts message['text']
+    puts @token['bot_user_id']
+    match = Regexp.new('(<@'+@token['bot_user_id']+'>:?)?(.*)').match message['text']
+    query = match[2].strip
+    res = index.search(query, {'attributesToRetrieve' => ['link', 'title'], 'hitsPerPage' => 5})
+
+
+    # Now, let's set up a response that looks like this:
+    # https://api.slack.com/docs/messages/builder?msg=%7B%22text%22%3A%22http%3A%2F%2Fgoogle.com%5Cnhttp%3A%2F%2Fmedium.com%22%7D
+
+    if res['hits'].nil? or (res['hits'].size == 0)
+      # not hits to return :(
+      client.chat_postMessage(
+          text: "I am sorry to say that I found no hits for \"#{query}\"",
+          channel: message['channel'],
+          attachments: [{
+                            'text': '',
+                            'footer': 'Powered by Aloglia',
+                            'footer_icon': 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
+                        }]
+      )
+
+    else
+      # we have hits to return!
+      # We are just going to load all the links into the text string, and let Slack take care of unfurling those links
+      # into something beautiful
+      text = "I found some results for you."
+      res['hits'].each do |hit|
+        text = text+"\n  • <#{hit['link']}|#{hit['title']}>"
+      end
+
+      puts text
+
+      # add an attachment for the credits
+      attachments = [{
+                           'text': '',
+                           'footer': 'Powered by Aloglia',
+                           'footer_icon': 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
+                       }]
+
+      client.chat_postMessage(
+          text: text,
+          channel: message['channel'],
+          as_user: true,
+          unfurl_links: true,
+          unfurl_media: true,
+          attachments: attachments
+      )
+
+    end
   end
 
 
