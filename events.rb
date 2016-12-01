@@ -87,6 +87,7 @@ class Events < Sinatra::Base
       links.append url
     end
 
+
     index = Algolia::Index.new(@request_data['team_id'])
     links.each do |link|
       Unirest.get link do |response|
@@ -96,7 +97,8 @@ class Events < Sinatra::Base
         text = page.css('body').text
         title = page.css('title').text
 
-        index.add_object({title: title, body: text, link: link, ts: message['ts']}, link)
+        # The Algolia docs say 10KB, but I'm going to round down in the name of keeping things simple and truncate any webpage to 9000 characters
+        res = index.add_object!({title: title, body: text.truncate(9000), link: link, ts: message['ts']}, link)
       end
     end
   end

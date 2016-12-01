@@ -8,3 +8,11 @@ def create_slack_client(slack_api_secret)
   end
   Slack::Web::Client.new
 end
+
+
+# A method to truncate a string!
+class String
+  def truncate(max)
+    length > max ? "#{self[0...max]}..." : self
+  end
+end
