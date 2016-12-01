@@ -36,7 +36,7 @@ class Events < Sinatra::Base
 
     @team_id = @request_data['team_id']
     #maybe this is a message action, in which case we have to dig deeper
-    @team_id = @request_data['team']['id'] if @team_id.nil?
+    @team_id = @request_data['team']['id'] if @team_id.nil? && @request_data['team']
 
     @token = $tokens.find({team_id: @team_id}).first
 
