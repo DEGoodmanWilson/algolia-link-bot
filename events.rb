@@ -20,7 +20,6 @@ class Events < Sinatra::Base
     error = false
     begin
       @request_data = JSON.parse(body)
-      puts @request_data.to_s
     rescue JSON::ParserError
       error = true
     end
@@ -31,7 +30,6 @@ class Events < Sinatra::Base
         body = body.split('payload=', 2)[1]
         @request_data = JSON.parse(URI.decode(body))
       rescue JSON::ParserError => e
-        puts e
         halt 419, "Malformed event payload"
       end
     end
@@ -181,8 +179,8 @@ class Events < Sinatra::Base
 
       return {
           text: text,
-          unfurl_links: true,
-          unfurl_media: true,
+          unfurl_links: false,
+          unfurl_media: false,
           attachments: attachments
       }
     end
@@ -244,7 +242,6 @@ class Events < Sinatra::Base
   # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling
   post '/buttons' do
 
-    puts @request_data.to_s
     # So, someone hit "prev" or "next". Our job is to figure out
     # a) what they were looking at and
     # b) where they want to go
@@ -254,7 +251,6 @@ class Events < Sinatra::Base
     new_page = @request_data['actions'][0]['value'].to_i # and the new page to fetch here.
 
     #we have enough to run the query!
-    puts query_str
     response = query query_str, new_page
 
     # Rather than posting a new message, we'll just respond with the new message to replace the old message! It's like a carousel

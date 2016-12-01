@@ -89,7 +89,7 @@ class Auth < Sinatra::Base
 
       # Create the Algolia index
       index = Algolia::Index.new(team_id)
-      index.set_settings 'searchableAttributes' => ['title', 'body'], 'customRanking' => ['desc(ts)']
+      index.set_settings 'searchableAttributes' => ['title', 'body'], 'customRanking' => ['desc(ts)'], 'typoTolerance' => 'min'
 
 
       # Be sure to let the user know that auth succeeded.
