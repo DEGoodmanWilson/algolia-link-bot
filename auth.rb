@@ -2,7 +2,10 @@ require 'sinatra/base'
 require 'slack-ruby-client'
 require 'mongo'
 require 'erb'
+require 'algoliasearch'
 require_relative 'helpers'
+
+Algolia.init
 
 # This code is largely borrowed from the Slack Ruby Events API example here https://github.com/slackapi/Slack-Ruby-Onboarding-Tutorial
 
@@ -83,6 +86,10 @@ class Auth < Sinatra::Base
       installer = response['user_id']
       client = create_slack_client(response['bot']['bot_access_token'])
       client.chat_postMessage(channel: installer, as_user:true, text: "Hello <@#{installer}>! Thanks for installing me. Just invite me into any channel, and I will start indexing links that people post there. Message me to search through those links!")
+
+      # Create the Algolia index
+      index = Algolia::Index.new(team_id)
+      index.set_settings 'searchableAttributes' => ['title', 'body'], 'customRanking' => ['desc(ts)']
 
 
       # Be sure to let the user know that auth succeeded.

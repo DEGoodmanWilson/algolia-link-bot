@@ -80,7 +80,7 @@ class Events < Sinatra::Base
         text = page.css('body').text
         title = page.css('title').text
 
-        index.add_object({title: title, body: text, link: link}, link)
+        index.add_object({title: title, body: text, link: link, ts: message['ts']}, link)
       end
     end
   end
