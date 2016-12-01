@@ -4,6 +4,7 @@ require 'mongo'
 require 'algoliasearch'
 require 'unirest'
 require 'nokogiri'
+require 'uri'
 require_relative 'helpers'
 
 Algolia.init
@@ -12,17 +13,37 @@ class Events < Sinatra::Base
 
   # This function contains code common to all endpoints: JSON extraction, and checking verification tokens
   before do
+    body = request.body.read
+
     # Extract the Event payload from the request and parse the JSON. We can reasonably assume this will be present
+    error = false
     begin
-      @request_data = JSON.parse(request.body.read)
+      @request_data = JSON.parse(body)
+      puts @request_data.to_s
     rescue JSON::ParserError
-      halt 419, "No event payload"
+      error = true
     end
 
-    @token = $tokens.find({team_id: @request_data['team_id']}).first
+    if error
+      # the payload might be URI encoded. Partly. Seriously. We'll need to try again.
+      begin
+        body = body.split('payload=', 2)[1]
+        @request_data = JSON.parse(URI.decode(body))
+      rescue JSON::ParserError => e
+        puts e
+        halt 419, "Malformed event payload"
+      end
+    end
 
-    halt 419, "No token" if @token.nil?
+    puts @request_data.to_s
 
+    if @request_data['team_id']
+      @token = $tokens.find({team_id: @request_data['team_id']}).first
+    else
+      #maybe this is a message action, in which case we have to dig deeper
+      @token = $tokens.find({team_id: @request_data['team']['id']}).first
+
+    end
 
     # Check the verification token provided with the requat to make sure it matches the verification token in
     # your app's setting to confirm that the request came from Slack.
@@ -85,9 +106,8 @@ class Events < Sinatra::Base
     end
   end
 
-  def query message
+  def query message, page=0
     index = Algolia::Index.new(@request_data['team_id'])
-    client = create_slack_client(@token['bot_access_token'])
 
     # Assume that the search query is following the @-mention
     # TODO maybe not an awesome interface for this bot?
@@ -95,7 +115,7 @@ class Events < Sinatra::Base
     puts @token['bot_user_id']
     match = Regexp.new('(<@'+@token['bot_user_id']+'>:?)?(.*)').match message['text']
     query = match[2].strip
-    res = index.search(query, {'attributesToRetrieve' => ['link', 'title'], 'hitsPerPage' => 5})
+    res = index.search(query, {'attributesToRetrieve' => ['link', 'title'], 'page' => page, 'hitsPerPage' => 5})
 
 
     # Now, let's set up a response that looks like this:
@@ -103,7 +123,7 @@ class Events < Sinatra::Base
 
     if res['hits'].nil? or (res['hits'].size == 0)
       # not hits to return :(
-      client.chat_postMessage(
+      return {
           text: "I am sorry to say that I found no hits for \"#{query}\"",
           channel: message['channel'],
           attachments: [{
@@ -111,7 +131,7 @@ class Events < Sinatra::Base
                             'footer': 'Powered by Aloglia',
                             'footer_icon': 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
                         }]
-      )
+      }
 
     else
       # we have hits to return!
@@ -151,16 +171,14 @@ class Events < Sinatra::Base
       }
       attachments.append footer
 
-
-      client.chat_postMessage(
+      return {
           text: text,
           channel: message['channel'],
           as_user: true,
           unfurl_links: true,
           unfurl_media: true,
           attachments: attachments
-      )
-
+      }
     end
   end
 
@@ -199,8 +217,9 @@ class Events < Sinatra::Base
     end
 
     if is_in_dm || is_addressed_to_us
-      query message
-      halt 200
+      response = query message
+      client = create_slack_client(@token['bot_access_token'])
+      client.chat_postMessage response
     end
 
     # else, do nothing. Ignore the message.
@@ -211,6 +230,19 @@ class Events < Sinatra::Base
   # We end up here if someone clicked a button in one of our messages.
   # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling
   post '/buttons' do
+    # So, someone hit "prev" or "next". Our job is to figure out
+    # a) what they were looking at and
+    # b) where they want to go
+    # c) and then reconstruct the message with the new data
 
+    query_str = @request_data['callback_id'] # we stored the query in the callback id, so clever!
+    new_page = @request_data['actions']['value'] # and the new page to fetch here.
+
+    #we have enough to run the query!
+    response = query query_str, new_page
+    client = create_slack_client(@token['bot_access_token'])
+    client.chat_postMessage response
+
+    @request_data
   end
 end
