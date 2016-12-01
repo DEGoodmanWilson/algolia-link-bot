@@ -122,14 +122,35 @@ class Events < Sinatra::Base
         text = text+"\n  • <#{hit['link']}|#{hit['title'].strip}>"
       end
 
-      puts text
+      attachments = []
+
+      # Did we get more than 5 results? Let's add a "Next" button!
+      if (res['nbPages'] > 1)
+        button = {
+            text: 'There are more results!',
+            fallback: 'You cannot use message actions here',
+            callback_id: query,
+            attachment_type: 'default',
+            actions: [
+                {
+                    name: 'next',
+                    text: 'Next',
+                    type: 'button',
+                    value: '1'
+                }
+            ]
+        }
+        attachments.append button
+      end
 
       # add an attachment for the credits
-      attachments = [{
-                           'text': '',
-                           'footer': 'Powered by Aloglia',
-                           'footer_icon': 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
-                       }]
+      footer = {
+          text: '',
+          footer: 'Powered by Aloglia',
+          footer_icon: 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
+      }
+      attachments.append footer
+
 
       client.chat_postMessage(
           text: text,
@@ -184,5 +205,12 @@ class Events < Sinatra::Base
 
     # else, do nothing. Ignore the message.
     status 200
+  end
+
+  # Here is the endpoint for handling message actions
+  # We end up here if someone clicked a button in one of our messages.
+  # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling
+  post '/buttons' do
+
   end
 end
