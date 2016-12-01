@@ -35,15 +35,11 @@ class Events < Sinatra::Base
       end
     end
 
-    puts @request_data.to_s
+    @team_id = @request_data['team_id']
+    #maybe this is a message action, in which case we have to dig deeper
+    @team_id = @request_data['team']['id'] if @team_id.nil?
 
-    if @request_data['team_id']
-      @token = $tokens.find({team_id: @request_data['team_id']}).first
-    else
-      #maybe this is a message action, in which case we have to dig deeper
-      @token = $tokens.find({team_id: @request_data['team']['id']}).first
-
-    end
+    @token = $tokens.find({team_id: @team_id}).first
 
     # Check the verification token provided with the requat to make sure it matches the verification token in
     # your app's setting to confirm that the request came from Slack.
@@ -106,16 +102,11 @@ class Events < Sinatra::Base
     end
   end
 
-  def query message, page=0
-    index = Algolia::Index.new(@request_data['team_id'])
+  def query query_str, page=0
+    index = Algolia::Index.new(@team_id)
 
-    # Assume that the search query is following the @-mention
-    # TODO maybe not an awesome interface for this bot?
-    puts message['text']
-    puts @token['bot_user_id']
-    match = Regexp.new('(<@'+@token['bot_user_id']+'>:?)?(.*)').match message['text']
-    query = match[2].strip
-    res = index.search(query, {'attributesToRetrieve' => ['link', 'title'], 'page' => page, 'hitsPerPage' => 5})
+    puts "HALLO #{query_str} #{page} #{@team_id}"
+    res = index.search(query_str, {'attributesToRetrieve' => ['link', 'title'], 'page' => page, 'hitsPerPage' => 5})
 
 
     # Now, let's set up a response that looks like this:
@@ -124,8 +115,7 @@ class Events < Sinatra::Base
     if res['hits'].nil? or (res['hits'].size == 0)
       # not hits to return :(
       return {
-          text: "I am sorry to say that I found no hits for \"#{query}\"",
-          channel: message['channel'],
+          text: "I am sorry to say that I found no hits for \"#{query_str}\"",
           attachments: [{
                             'text': '',
                             'footer': 'Powered by Aloglia',
@@ -149,7 +139,7 @@ class Events < Sinatra::Base
         button = {
             text: 'There are more results!',
             fallback: 'You cannot use message actions here',
-            callback_id: query,
+            callback_id: query_str,
             attachment_type: 'default',
             actions: [
                 {
@@ -173,7 +163,6 @@ class Events < Sinatra::Base
 
       return {
           text: text,
-          channel: message['channel'],
           as_user: true,
           unfurl_links: true,
           unfurl_media: true,
@@ -217,7 +206,14 @@ class Events < Sinatra::Base
     end
 
     if is_in_dm || is_addressed_to_us
-      response = query message
+      # Assume that the search query is following the @-mention
+      # TODO maybe not an awesome interface for this bot?
+      match = Regexp.new('(<@'+@token['bot_user_id']+'>:?)?(.*)').match message['text']
+      query_str = match[2].strip
+
+      response = query query_str
+      response[:channel] = message['channel']
+
       client = create_slack_client(@token['bot_access_token'])
       client.chat_postMessage response
     end
@@ -230,19 +226,25 @@ class Events < Sinatra::Base
   # We end up here if someone clicked a button in one of our messages.
   # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling
   post '/buttons' do
+
+    puts @request_data.to_s
     # So, someone hit "prev" or "next". Our job is to figure out
     # a) what they were looking at and
     # b) where they want to go
     # c) and then reconstruct the message with the new data
 
     query_str = @request_data['callback_id'] # we stored the query in the callback id, so clever!
-    new_page = @request_data['actions']['value'] # and the new page to fetch here.
+    new_page = @request_data['actions'][0]['value'].to_i # and the new page to fetch here.
 
     #we have enough to run the query!
+    puts query_str
     response = query query_str, new_page
+    response[:channel] = @request_data['channel']['id']
+    puts response.to_s
+
     client = create_slack_client(@token['bot_access_token'])
     client.chat_postMessage response
 
-    @request_data
+    status 200
   end
 end
