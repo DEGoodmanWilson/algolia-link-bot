@@ -10,9 +10,10 @@ require_relative 'helpers'
 
 Algolia.init
 
+# Fly me to the moon, let me dance among the stars...
 class Events < Sinatra::Base
 
-  # This function contains code common to all endpoints: JSON extraction, and checking verification tokens
+  # This function contains code common to all endpoints: JSON extraction, setting up some instance variables, and checking verification tokens (for security)
   before do
     body = request.body.read
 
@@ -25,7 +26,7 @@ class Events < Sinatra::Base
     end
 
     if error
-      # the payload might be URI encoded. Partly. Seriously. We'll need to try again.
+      # the payload might be URI encoded. Partly. Seriously. We'll need to try again. This happens for message actions webhooks only
       begin
         body = body.split('payload=', 2)[1]
         @request_data = JSON.parse(URI.decode(body))
@@ -34,22 +35,26 @@ class Events < Sinatra::Base
       end
     end
 
+    # What team generated this event?
     @team_id = @request_data['team_id']
-    #maybe this is a message action, in which case we have to dig deeper
+    # maybe this is a message action, in which case we have to dig deeper. This is one place where the Slack API is maddeningly inconsistent
     @team_id = @request_data['team']['id'] if @team_id.nil? && @request_data['team']
 
+    # Load up the Slack application tokens for this team and put them where we can reach them.
     @token = $tokens.find({team_id: @team_id}).first
 
-    # Check the verification token provided with the requat to make sure it matches the verification token in
+    # Check the verification token provided with the request to make sure it matches the verification token in
     # your app's setting to confirm that the request came from Slack.
     unless SLACK_CONFIG[:slack_verification_token] == @request_data['token']
       halt 403, "Invalid Slack verification token received: #{@request_data['token']}"
     end
   end
 
-  # This cool function allows us to write Sinatra endpoints for individual events of interest directly! How fun!
+  # This cool function allows us to write Sinatra endpoints for individual events of interest directly! How fun! Magic!
   set(:event) do |value|
     condition do
+      # Each Slack event has a unique `type`. The `message` event also has a `subtype`, sometimes, that we can capture too.
+      # Let's make message subtypes look like `message.subtype` for convenience
       return true if @request_data['type'] == value
 
       if @request_data['type'] == 'event_callback'
@@ -64,44 +69,44 @@ class Events < Sinatra::Base
     end
   end
 
+####################################
+# helper functions
+#
 
-  # See? I said it would be fun. Here is the endpoint for handling the necessayr events endpoint url verification, which
-  # is a one-time step in the application creation process. We have to do it :(
-  post '/events', :event => 'url_verification' do
-    return @request_data['challenge']
-  end
-
-
+  # This method takes a `message` event that should be indexed, extracts all the links in that message, opens each of those
+  # links (asynchronously of course!), flattens the HTML into plaintext, and send that on to Algolia for indexing.
   def index message
-
     # We begin the hunt for links. The good news is that Slack marks them out for us!
     # Links look like:
     # <http://google.com>
     # or
     # <http://google.com|Google!>
-    # We want to ignore the label
-    # This regex is a little janky, but it'll do for now
+    # We want to ignore the label, and just get the URL
     links = []
     message['text'].scan(/<(https?:\/\/.+?)>/).each do |m|
       url = m[0].split('|')[0]
       links.append url
     end
 
-
-    index = Algolia::Index.new(@request_data['team_id'])
     links.each do |link|
       Unirest.get link do |response|
+        # We are now in our own thread, operating asynchronously. We can take our time here.
+
+        # First, we use Nokogiri to extract the page body, and flatten it to plaintext, removing any CSS, JS, or links that we really don't want in the index.
         page = Nokogiri::HTML(response.body)
-        # TODO This needs a some polish. Look at the results for https://slackhq.com/adventures-of-a-world-famous-librarian-b03135fe40a0#.8hdodu9qz
         page.css('script, link, style').each { |node| node.remove }
         text = page.css('body').text
         title = page.css('title').text
 
+        index = Algolia::Index.new(@request_data['team_id'])
+
+        # And we index it.
         # The Algolia docs say 10KB, but I'm going to round down in the name of keeping things simple and truncate any webpage to 9000 characters
         # We are doing this sync, because a) we're already in a background thread, and b) when we're done, we're going to add a reacji to the message to show
         # it has been indexed!
         res = index.add_object!({title: title, body: text.truncate(9000), link: link, ts: message['ts']}, link)
         if res
+          # Upon success, let's let the user know by adding a reactji to their message
           client = create_slack_client(@token['bot_access_token'])
           client.reactions_add name: 'flashlight', channel: message['channel'], timestamp: message['ts']
         end
@@ -109,16 +114,22 @@ class Events < Sinatra::Base
     end
   end
 
-  def query query_str, page=0
-    index = Algolia::Index.new(@team_id)
 
+
+
+  # This method take a search query string, executes it, and returns a message object that can be sent on to Slack for rendering.
+  def query query_str, page=0
+
+    # We begin by searching!
+    index = Algolia::Index.new(@team_id)
     res = index.search(query_str, {'attributesToRetrieve' => ['link', 'title'], 'page' => page, 'hitsPerPage' => 5})
 
     # Now, let's set up a response that looks like this:
     # https://api.slack.com/docs/messages/builder?msg=%7B%22text%22%3A%22http%3A%2F%2Fgoogle.com%5Cnhttp%3A%2F%2Fmedium.com%22%7D
+    # Basically, we want to include all the links in the response, followed by pagination buttons if there are multiple pages, followed by a nice footer that respects the terms of the Algolia free plan
 
     if res['hits'].nil? or (res['hits'].size == 0)
-      # not hits to return :(
+      # not hits to return :( Let the user know they struck out.
       return {
           text: "I am sorry to say that I found no hits for \"#{query_str}\"",
           attachments: [{
@@ -130,13 +141,14 @@ class Events < Sinatra::Base
 
     else
       # we have hits to return!
-      # We are just going to load all the links into the text string, and let Slack take care of unfurling those links
-      # into something beautiful
-      text = "I found some results for you."
+      # We are just going to load all the links into the message text.
+      text = 'I found some results for you.'
       res['hits'].each do |hit|
+        # a bulleted list works great
         text = text+"\n  • <#{hit['link']}|#{hit['title'].strip}>"
       end
 
+      # Slack has this notion of message attachments. They are a cool way to structure the message. Also, action buttons have to go into an attachment.
       attachments = []
       buttons = []
 
@@ -177,7 +189,7 @@ class Events < Sinatra::Base
         attachments.append buttons_attachment
       end
 
-      # add an attachment for the credits
+      # add an attachment for the Algolia Free Plan Terms Satisfaction
       footer = {
           text: '',
           footer: 'Powered by Aloglia',
@@ -194,8 +206,21 @@ class Events < Sinatra::Base
     end
   end
 
+####################################
+# Event handlers
+#
 
-  # Now things get a bit more excited. Here is the endpoint for handling user messages!
+  # See? I said it would be fun. Here is the endpoint for handling the necessary events endpoint url verification, which
+  # is a one-time step in the application creation process. We have to do it :( Exactly once. But it's easy.
+  post '/events', :event => 'url_verification' do
+    return @request_data['challenge']
+  end
+
+
+
+
+  # Now things get a bit more exciting. Here is the endpoint for handling user messages! We need to determine whether to
+  # index, run a query, or ignore the message, and then possibly render a response.
   post '/events', :event => 'message' do
 
     message = @request_data['event']
@@ -222,21 +247,25 @@ class Events < Sinatra::Base
     # Is it in a public channel?
     is_in_public_channel = message['channel'][0] == 'C'
 
-
+    # Does the message satisfy the rule above? Index it!
     if is_in_public_channel && !is_addressed_to_us
       index message
       halt 200
     end
 
+    # The other rule is: If the message is meant for us, then run a query. A message meant for us is a message
+    # that @-mentions us, or else arrives in a DM with us.
     if is_in_dm || is_addressed_to_us
       # Assume that the search query is following the @-mention
       # TODO maybe not an awesome interface for this bot?
       match = Regexp.new('(<@'+@token['bot_user_id']+'>:?)?(.*)').match message['text']
       query_str = match[2].strip
 
+      # Run the response, and capture the resulting reply
       response = query query_str
       response[:channel] = message['channel']
 
+      # Finally, post that reply back in the same channel that the query came from
       client = create_slack_client(@token['bot_access_token'])
       client.chat_postMessage response
     end
@@ -245,9 +274,14 @@ class Events < Sinatra::Base
     status 200
   end
 
+
+
+
+
   # Here is the endpoint for handling message actions
   # We end up here if someone clicked a button in one of our messages.
-  # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling
+  # Since at the moment we only support prev and next buttons in query results, we don't need to do any special handling,
+  # we are free to make a range of useful assumptions
   post '/buttons' do
 
     # So, someone hit "prev" or "next". Our job is to figure out

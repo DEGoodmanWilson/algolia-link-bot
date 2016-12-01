@@ -9,6 +9,7 @@ Algolia.init
 
 # This code is largely borrowed from the Slack Ruby Events API example here https://github.com/slackapi/Slack-Ruby-Onboarding-Tutorial
 
+# Set up external persistence of Slack application tokens
 db_client = Mongo::Client.new(ENV['MONGODB_URI'])
 $tokens = db_client[:token]
 
@@ -28,8 +29,11 @@ if missing_params.any?
   raise "Missing Slack config variables: #{error_msg}"
 end
 
-# Set the OAuth scope of your bot. We're just using `bot` for this demo, as it has access to
-# all the things we'll need to access. See: https://api.slack.com/docs/oauth-scopes for more info.
+# Set the OAuth scope of your bot.
+# • `bot` lets us install a bot user
+# • `chat:write:bot` allows our bot to edit its own messages, an important consideration for the carousel functionality.
+# • `reactions:write` allows our bot to add a reactji to a message to show that it has successfully ingested and indexed the links in the message
+# See: https://api.slack.com/docs/oauth-scopes for more info.
 BOT_SCOPE = 'bot,chat:write:bot,reactions:write'
 
 # Slack uses OAuth for user authentication. This auth process is performed by exchanging a set of
@@ -82,19 +86,23 @@ class Auth < Sinatra::Base
 
       $tokens.find(team_id: team_id).replace_one(doc)
 
-      # Post a message into the installer's channel
+      # Post a message into the installer's channel giving them instructions for how to interact with the bot
+      # Bots should never DM the entire team, or invite themselves into a channel, so this is a really important engagement point.
       installer = response['user_id']
       client = create_slack_client(response['bot']['bot_access_token'])
       client.chat_postMessage(channel: installer, as_user:true, text: "Hello <@#{installer}>! Thanks for installing me. Just invite me into any channel, and I will start indexing links that people post there. Message me to search through those links!")
 
-      # Create the Algolia index
+      # Create the Algolia indexx
+      # We don't want to index the URLs, the timestamps, or basically anything but cold, hard content
+      # We will use the timestamp as a tiebreaker
+      # And we will have a low tolerance for typos because each individual object is so big that typo matching will return lots of spurious results
       index = Algolia::Index.new(team_id)
       index.set_settings 'searchableAttributes' => ['title', 'body'], 'customRanking' => ['desc(ts)'], 'typoTolerance' => 'min'
 
-
-      # Be sure to let the user know that auth succeeded.
+      # Finally, be sure to let the user know that auth succeeded.
       status 200
       body "Yay! Auth succeeded! You're awesome! Check out your Slack team for further instructions."
+
     rescue Slack::Web::Api::Error => e
       # Failure:
       # D'oh! Let the user know that something went wrong and output the error message returned by the Slack client.
