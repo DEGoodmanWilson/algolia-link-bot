@@ -5,6 +5,7 @@ require 'algoliasearch'
 require 'unirest'
 require 'nokogiri'
 require 'uri'
+require 'json'
 require_relative 'helpers'
 
 Algolia.init
@@ -105,9 +106,7 @@ class Events < Sinatra::Base
   def query query_str, page=0
     index = Algolia::Index.new(@team_id)
 
-    puts "HALLO #{query_str} #{page} #{@team_id}"
     res = index.search(query_str, {'attributesToRetrieve' => ['link', 'title'], 'page' => page, 'hitsPerPage' => 5})
-
 
     # Now, let's set up a response that looks like this:
     # https://api.slack.com/docs/messages/builder?msg=%7B%22text%22%3A%22http%3A%2F%2Fgoogle.com%5Cnhttp%3A%2F%2Fmedium.com%22%7D
@@ -133,24 +132,43 @@ class Events < Sinatra::Base
       end
 
       attachments = []
+      buttons = []
 
-      # Did we get more than 5 results? Let's add a "Next" button!
-      if (res['nbPages'] > 1)
-        button = {
-            text: 'There are more results!',
+      # Now we need to determine whether we should add buttons or not.
+
+      #First, let's see if we should add a previous button. This is easy: Is the current page > 0? Then we need a prev button
+      if res['page'] > 0
+        p_button = {
+            name: 'prev',
+            text: 'Prev',
+            type: 'button',
+            value: res['page']-1
+        }
+        buttons.append p_button
+      end
+
+      #Now, a next button. If page is < nbPages, add a next button
+      # We subtract one because of zero indexing.
+      if res['page'] < (res['nbPages']-1)
+        n_button = {
+            name: 'next',
+            text: 'Next',
+            type: 'button',
+            value: res['page']+1
+        }
+        buttons.append n_button
+      end
+
+      # Now, add any buttons we created to an attachment, if indeed there are any
+      unless buttons.empty?
+        buttons_attachment = {
+            text: "Page #{res['page']+1} of #{res['nbPages']}",
             fallback: 'You cannot use message actions here',
             callback_id: query_str,
             attachment_type: 'default',
-            actions: [
-                {
-                    name: 'next',
-                    text: 'Next',
-                    type: 'button',
-                    value: '1'
-                }
-            ]
+            actions: buttons
         }
-        attachments.append button
+        attachments.append buttons_attachment
       end
 
       # add an attachment for the credits
@@ -163,7 +181,6 @@ class Events < Sinatra::Base
 
       return {
           text: text,
-          as_user: true,
           unfurl_links: true,
           unfurl_media: true,
           attachments: attachments
@@ -239,12 +256,9 @@ class Events < Sinatra::Base
     #we have enough to run the query!
     puts query_str
     response = query query_str, new_page
-    response[:channel] = @request_data['channel']['id']
-    puts response.to_s
 
-    client = create_slack_client(@token['bot_access_token'])
-    client.chat_postMessage response
-
-    status 200
+    # Rather than posting a new message, we'll just respond with the new message to replace the old message! It's like a carousel
+    content_type :json
+    response.to_json
   end
 end
