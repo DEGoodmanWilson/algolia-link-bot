@@ -98,7 +98,13 @@ class Events < Sinatra::Base
         title = page.css('title').text
 
         # The Algolia docs say 10KB, but I'm going to round down in the name of keeping things simple and truncate any webpage to 9000 characters
+        # We are doing this sync, because a) we're already in a background thread, and b) when we're done, we're going to add a reacji to the message to show
+        # it has been indexed!
         res = index.add_object!({title: title, body: text.truncate(9000), link: link, ts: message['ts']}, link)
+        if res
+          client = create_slack_client(@token['bot_access_token'])
+          client.reactions_add name: 'flashlight', channel: message['channel'], timestamp: message['ts']
+        end
       end
     end
   end

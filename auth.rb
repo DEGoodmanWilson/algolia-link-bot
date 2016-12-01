@@ -30,7 +30,7 @@ end
 
 # Set the OAuth scope of your bot. We're just using `bot` for this demo, as it has access to
 # all the things we'll need to access. See: https://api.slack.com/docs/oauth-scopes for more info.
-BOT_SCOPE = 'bot,chat:write:bot'
+BOT_SCOPE = 'bot,chat:write:bot,reactions:write'
 
 # Slack uses OAuth for user authentication. This auth process is performed by exchanging a set of
 # keys and tokens between Slack's servers and yours. This process allows the authorizing user to confirm
