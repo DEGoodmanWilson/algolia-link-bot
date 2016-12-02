@@ -84,7 +84,8 @@ class Auth < Sinatra::Base
           bot_access_token: response['bot']['bot_access_token']
       }
 
-      $tokens.find(team_id: team_id).replace_one(doc)
+      # let's attempt some kind of upsert, replacing rows that are already there, inserting otherwise
+      $tokens.update_one({team_id: team_id}, doc, {upsert: true})
 
       # Post a message into the installer's channel giving them instructions for how to interact with the bot
       # Bots should never DM the entire team, or invite themselves into a channel, so this is a really important engagement point.
