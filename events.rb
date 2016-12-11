@@ -134,7 +134,7 @@ class Events < Sinatra::Base
           text: "I am sorry to say that I found no hits for \"#{query_str}\"",
           attachments: [{
                             'text': '',
-                            'footer': 'Powered by Aloglia',
+                            'footer': 'Powered by Algolia',
                             'footer_icon': 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
                         }]
       }
@@ -192,7 +192,7 @@ class Events < Sinatra::Base
       # add an attachment for the Algolia Free Plan Terms Satisfaction
       footer = {
           text: '',
-          footer: 'Powered by Aloglia',
+          footer: 'Powered by Algolia',
           footer_icon: 'https://www.algolia.com/static_assets/images/press/downloads/algolia-mark-blue.png'
       }
       attachments.append footer
